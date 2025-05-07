@@ -10,7 +10,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 # ─── CONFIG ────────────────────────────────────────────────
 TOKEN             = os.getenv('TELEGRAM_BOT_TOKEN', '7918306173:AAFFIedi9d4R8XDA0AlsOin8BCfJRJeNGWE')
 CHAT_ID           = os.getenv('TELEGRAM_CHAT_ID', '@udemyfreecourses2080')
-INTERVAL          = int(os.getenv('INTERVAL_MINUTES', '1'))
+INTERVAL          = int(os.getenv('INTERVAL_MINUTES', '10'))
 SHEET_KEY         = os.getenv('SHEET_KEY', '1aoHvwptKb6S3IbBFF6WdsWt6FsTeWlAKEcvk05IZj70')  # Use env var name 'SHEET_KEY'
 BASE_REDIRECT_URL = 'https://udemyfreecoupons2080.blogspot.com'
 # ────────────────────────────────────────────────────────────

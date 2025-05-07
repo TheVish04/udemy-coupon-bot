@@ -21,25 +21,21 @@ STATIC_COUPONS = [
     ('the-complete-matlab-course-for-wireless-comm-engineering', '59DE4A717B657B340C67'),
 ]
 
+logger = logging.getLogger(__name__)
+
+
 def get_coupons_from_sheet():
-    if not SHEET_KEY:
-        logger.info("No SHEET_KEY provided, skipping Google Sheet fetch")
-        return []
+    scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
     try:
-        scope = ['https://www.googleapis.com/auth/spreadsheets.readonly']
-        creds = ServiceAccountCredentials.from_json_keyfile_name('credentials.json', scope)
+        creds = ServiceAccountCredentials.from_json_keyfile_name('/etc/secrets/credentials.json', scope)
         client = gspread.authorize(creds)
-        sheet = client.open_by_key(SHEET_KEY).sheet1
-        rows = sheet.get_all_records()
-        logger.info(f"Fetched {len(rows)} rows from Google Sheet")
-        return [
-            (r['slug'], r['couponCode'])
-            for r in rows
-            if r.get('slug') and r.get('couponCode')
-        ]
+        sheet = client.open_by_key(os.getenv('SHEET_KEY')).sheet1
+        data = sheet.get_all_records()
+        logger.info(f"Successfully fetched sheet data: {len(data)} records")
+        return data
     except Exception as e:
-        logger.error(f"Error fetching Google Sheet: {e}")
-        return []
+        logger.error(f"Error fetching Google Sheet: {str(e)}", exc_info=True)
+        return None
 
 # ─── SETUP ─────────────────────────────────────────────────
 logging.basicConfig(format="%(asctime)s %(levelname)s %(message)s",

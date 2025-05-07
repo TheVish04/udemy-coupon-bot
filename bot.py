@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from apscheduler.schedulers.blocking import BlockingScheduler
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+import urllib.parse
 
 # ─── CONFIG ────────────────────────────────────────────────
 TOKEN             = os.getenv('TELEGRAM_BOT_TOKEN', '7918306173:AAFFIedi9d4R8XDA0AlsOin8BCfJRJeNGWE')
@@ -22,7 +23,6 @@ STATIC_COUPONS = [
 ]
 
 logger = logging.getLogger(__name__)
-
 
 def get_coupons_from_sheet():
     scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
@@ -44,14 +44,21 @@ logger = logging.getLogger(__name__)
 scheduler = BlockingScheduler(timezone="UTC")
 # ────────────────────────────────────────────────────────────
 
+def build_udemy_url(slug, coupon):
+    """Build the full Udemy URL with the slug and coupon code."""
+    return f"https://www.udemy.com/course/{slug}/?couponCode={coupon}"
+
 def build_redirect_link(slug, coupon):
-    return f"{BASE_REDIRECT_URL}?slug={slug}&coupon={coupon}"
+    """Build the redirect link to the Blogger page with the encoded Udemy URL."""
+    udemy_url = build_udemy_url(slug, coupon)
+    encoded_udemy_url = urllib.parse.quote(udemy_url, safe='')
+    return f"{BASE_REDIRECT_URL}?udemy_url={encoded_udemy_url}"
 
 def fetch_coupons():
     sheet_vals = get_coupons_from_sheet()
     if sheet_vals:
         logger.info(f"Loaded {len(sheet_vals)} coupons from Google Sheets")
-        return [build_redirect_link(slug, code) for slug, code in sheet_vals]
+        return [build_redirect_link(record['slug'], record['couponCode']) for record in sheet_vals if 'slug' in record and 'couponCode' in record]
     else:
         logger.info("No sheet data—falling back to static list")
         return [build_redirect_link(slug, code) for slug, code in STATIC_COUPONS]

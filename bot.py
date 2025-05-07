@@ -21,7 +21,7 @@ BASE_REDIRECT_URL = 'https://udemyfreecoupons2080.blogspot.com'
 PORT              = 10000
 # ────────────────────────────────────────────────────────────
 
-# Static fallback coupons (only used if sheet fetch fails)
+# Static fallback coupons (only used if sheet fetch yields none)
 STATIC_COUPONS = [
     ('the-complete-python-bootcamp-from-zero-to-expert', 'ST6MT60525G3'),
     ('the-complete-matlab-course-for-wireless-comm-engineering', '59DE4A717B657B340C67'),
@@ -58,9 +58,9 @@ def get_coupons_from_sheet():
         )
         client = gspread.authorize(creds)
         sheet = client.open_by_key(SHEET_KEY).sheet1
-        data = sheet.get_all_records()
-        logger.info(f"Fetched {len(data)} records from Google Sheets")
-        return data
+        records = sheet.get_all_records()
+        logger.info(f"Fetched {len(records)} rows from Google Sheets")
+        return records
     except Exception as e:
         logger.error(f"Error fetching sheet: {e}", exc_info=True)
         return None
@@ -75,18 +75,30 @@ def build_redirect_link(slug, coupon):
     return f"{BASE_REDIRECT_URL}?udemy_url={encoded}"
 
 def fetch_coupons():
-    records = get_coupons_from_sheet()
-    if records:
-        return [
-            build_redirect_link(r['slug'], r['couponCode'])
-            for r in records
-            if 'slug' in r and 'couponCode' in r
-        ]
-    else:
-        return [
-            build_redirect_link(slug, code)
-            for slug, code in STATIC_COUPONS
-        ]
+    sheet_vals = get_coupons_from_sheet()
+    # If sheet fetch failed, immediately use static fallback
+    if not sheet_vals:
+        logger.info("No sheet data—using static coupons")
+        return [build_redirect_link(s, c) for s, c in STATIC_COUPONS]
+
+    # Normalize keys to lowercase & strip whitespace
+    normalized = []
+    for row in sheet_vals:
+        low = {k.strip().lower(): v for k, v in row.items()}
+        normalized.append(low)
+
+    # Collect only rows that have both slug and couponcode
+    valid = []
+    for rec in normalized:
+        if rec.get('slug') and rec.get('couponcode'):
+            valid.append(build_redirect_link(rec['slug'], rec['couponcode']))
+
+    if not valid:
+        logger.warning("Sheet rows present but no valid slug/couponcode fields—using static coupons")
+        return [build_redirect_link(s, c) for s, c in STATIC_COUPONS]
+
+    logger.info(f"Using {len(valid)} coupons from sheet")
+    return valid
 
 # ─── TELEGRAM SENDER ───────────────────────────────────────
 def send_coupon():
@@ -97,10 +109,7 @@ def send_coupon():
     try:
         resp = requests.post(
             f"https://api.telegram.org/bot{TOKEN}/sendMessage",
-            data={
-                'chat_id': CHAT_ID,
-                'text': f"🔖 Grab this discount:\n{url}"
-            },
+            data={'chat_id': CHAT_ID, 'text': f"🔖 Grab this discount:\n{url}"},
             timeout=10
         )
         resp.raise_for_status()
@@ -114,15 +123,15 @@ def send_coupon():
 
 # ─── MAIN ───────────────────────────────────────────────────
 if __name__ == '__main__':
-    # Start the health-check HTTP server in the background
+    # 1) Start health-check server in background
     threading.Thread(target=run_health_server, daemon=True).start()
     logger.info(f"Health-check endpoint listening on port {PORT}")
 
-    # Send first coupon immediately
+    # 2) Send first coupon immediately
     logger.info("Startup: sending first coupon immediately")
     send_coupon()
 
-    # Schedule periodic coupon sends
+    # 3) Schedule further coupons every INTERVAL minutes
     logger.info(f"Scheduling coupons every {INTERVAL} minutes")
     scheduler.add_job(
         send_coupon,

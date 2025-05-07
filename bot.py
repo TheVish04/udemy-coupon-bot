@@ -13,20 +13,21 @@ from oauth2client.service_account import ServiceAccountCredentials
 import urllib.parse
 
 # ─── CONFIG ────────────────────────────────────────────────
-TOKEN             = os.getenv('TELEGRAM_BOT_TOKEN', 'YOUR_TELEGRAM_TOKEN')
-CHAT_ID           = os.getenv('TELEGRAM_CHAT_ID', '@yourchannel')
-INTERVAL          = int(os.getenv('INTERVAL_MINUTES', '10'))
-SHEET_KEY         = os.getenv('SHEET_KEY', 'YOUR_SHEET_KEY')
+TOKEN             = '7918306173:AAFFIedi9d4R8XDA0AlsOin8BCfJRJeNGWE'
+CHAT_ID           = '@udemyfreecourses2080'
+INTERVAL          = 10
+SHEET_KEY         = '1aoHvwptKb6S3IbBFF6WdsWt6FsTeWlAKEcvk05IZj70'
 BASE_REDIRECT_URL = 'https://udemyfreecoupons2080.blogspot.com'
-PORT              = int(os.getenv('PORT', 10000))
+PORT              = 10000
 # ────────────────────────────────────────────────────────────
 
+# Static fallback coupons (only used if sheet fetch fails)
 STATIC_COUPONS = [
     ('the-complete-python-bootcamp-from-zero-to-expert', 'ST6MT60525G3'),
     ('the-complete-matlab-course-for-wireless-comm-engineering', '59DE4A717B657B340C67'),
 ]
 
-# ─── LOGGING SETUP ─────────────────────────────────────────
+# ─── LOGGING & SCHEDULER SETUP ─────────────────────────────
 logging.basicConfig(
     format="%(asctime)s %(levelname)s %(message)s",
     level=logging.INFO
@@ -43,7 +44,6 @@ def healthz():
     return "OK", 200
 
 def run_health_server():
-    # listen on all interfaces so Render can reach it
     app.run(host="0.0.0.0", port=PORT)
 
 # ─── GOOGLE SHEETS FETCH ───────────────────────────────────
@@ -83,7 +83,6 @@ def fetch_coupons():
             if 'slug' in r and 'couponCode' in r
         ]
     else:
-        # fallback
         return [
             build_redirect_link(slug, code)
             for slug, code in STATIC_COUPONS
@@ -95,32 +94,35 @@ def send_coupon():
     url = random.choice(coupons)
     logger.info(f"Sending coupon: {url}")
 
-    resp = requests.post(
-        f"https://api.telegram.org/bot{TOKEN}/sendMessage",
-        data={'chat_id': CHAT_ID, 'text': f"🔖 Grab this discount:\n{url}"},
-        timeout=10
-    )
     try:
+        resp = requests.post(
+            f"https://api.telegram.org/bot{TOKEN}/sendMessage",
+            data={
+                'chat_id': CHAT_ID,
+                'text': f"🔖 Grab this discount:\n{url}"
+            },
+            timeout=10
+        )
         resp.raise_for_status()
         j = resp.json()
         if j.get('ok'):
             logger.info(f"Message sent (id={j['result']['message_id']})")
         else:
-            logger.error(f"Telegram error: {j}")
+            logger.error(f"Telegram API error: {j}")
     except Exception as e:
         logger.error(f"Failed to send message: {e}")
 
 # ─── MAIN ───────────────────────────────────────────────────
 if __name__ == '__main__':
-    # 1) Start the health endpoint in a background thread
+    # Start the health-check HTTP server in the background
     threading.Thread(target=run_health_server, daemon=True).start()
-    logger.info(f"Health check endpoint running on port {PORT}")
+    logger.info(f"Health-check endpoint listening on port {PORT}")
 
-    # 2) Fire off the first coupon immediately
+    # Send first coupon immediately
     logger.info("Startup: sending first coupon immediately")
     send_coupon()
 
-    # 3) Schedule periodic coupons
+    # Schedule periodic coupon sends
     logger.info(f"Scheduling coupons every {INTERVAL} minutes")
     scheduler.add_job(
         send_coupon,

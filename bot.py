@@ -16,11 +16,11 @@ BASE_REDIRECT_URL = 'https://udemyfreecoupons2080.blogspot.com'
 # ────────────────────────────────────────────────────────────
 
 # Static fallback coupons (only used if sheet is empty)
-STATIC_COUPONS = [
-    # slug + coupon pairs become full redirect links
-    ('the-complete-python-bootcamp-from-zero-to-expert', 'ST6MT60525G3'),
-    ('the-complete-matlab-course-for-wireless-comm-engineering', '59DE4A717B657B340C67'),
-]
+# STATIC_COUPONS = [
+#     # slug + coupon pairs become full redirect links
+#     ('the-complete-python-bootcamp-from-zero-to-expert', 'ST6MT60525G3'),
+#     ('the-complete-matlab-course-for-wireless-comm-engineering', '59DE4A717B657B340C67'),
+# ]
 
 def get_coupons_from_sheet():
     if not SHEET_KEY:

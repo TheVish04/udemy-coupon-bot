@@ -43,35 +43,100 @@ class RealDiscountScraper:
             self.wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".MuiGrid-container")))
             time.sleep(3)  # Additional wait for JS to render fully
             
-            # Find pagination elements
-            pagination_elements = self.driver.find_elements(By.CSS_SELECTOR, '.MuiPagination-ul li')
-            if not pagination_elements:
+            # First check if pagination exists
+            pagination_nav = self.driver.find_elements(By.CSS_SELECTOR, 'nav[aria-label="pagination navigation"]')
+            if not pagination_nav:
+                print("No pagination found, assuming 1 page")
                 return 1
+                
+            # Try to find pagination buttons with aria-label containing "Go to page"
+            pagination_buttons = self.driver.find_elements(By.CSS_SELECTOR, 'button.MuiPaginationItem-root')
             
-            # Extract page numbers
+            # Extract page numbers from the aria-labels
             page_numbers = []
-            for page in pagination_elements:
+            for button in pagination_buttons:
                 try:
-                    text = page.text.strip()
-                    if text.isdigit():
-                        page_numbers.append(int(text))
-                except ValueError:
+                    aria_label = button.get_attribute('aria-label')
+                    if aria_label and 'Go to page' in aria_label:
+                        # Extract the number from "Go to page X"
+                        page_num = aria_label.split('Go to page')[-1].strip()
+                        if page_num.isdigit():
+                            page_numbers.append(int(page_num))
+                except Exception:
                     continue
             
-            return max(page_numbers) if page_numbers else 1
+            # If we still don't have page numbers, try getting text from buttons
+            if not page_numbers:
+                for button in pagination_buttons:
+                    try:
+                        text = button.text.strip()
+                        if text.isdigit():
+                            page_numbers.append(int(text))
+                    except Exception:
+                        continue
+            
+            # If we found valid page numbers, return the maximum
+            if page_numbers:
+                max_page = max(page_numbers)
+                print(f"Detected {max_page} pages from pagination")
+                return max_page
+            else:
+                print("Could not extract page numbers, assuming at least 10 pages")
+                return 10  # Assume at least 10 pages if we can't determine exactly
             
         except Exception as e:
             print(f"Error getting total pages: {str(e)}")
-            # If we can't determine pages, assume at least 1
-            return 1
+            # If we can't determine pages, assume at least 10
+            print("Assuming 10 pages due to error")
+            return 10
+    
+    def navigate_to_page(self, page_num):
+        """Navigate to a specific page of courses using pagination buttons"""
+        if page_num == 1:
+            # Just load the base URL for page 1
+            self.driver.get(self.courses_url)
+            return True
+            
+        # For pages > 1, try to use pagination
+        try:
+            # First check if we're already on the courses page
+            current_url = self.driver.current_url
+            if not current_url.startswith(self.courses_url):
+                self.driver.get(self.courses_url)
+                
+            # Wait for pagination to load
+            self.wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'nav[aria-label="pagination navigation"]')))
+            time.sleep(2)  # Wait for JS to fully render
+            
+            # Try to find the button for the specific page
+            page_button = self.driver.find_element(By.XPATH, f'//button[@aria-label="Go to page {page_num}"]')
+            page_button.click()
+            
+            # Wait for page to reload
+            time.sleep(3)
+            return True
+        except Exception as e:
+            print(f"Error navigating to page {page_num}: {str(e)}")
+            
+            # Fallback: Try using URL parameter
+            try:
+                url = f"{self.courses_url}?page={page_num}"
+                self.driver.get(url)
+                time.sleep(3)
+                return True
+            except:
+                print(f"Failed to navigate to page {page_num}")
+                return False
     
     def get_course_links(self, page_num):
         """Get all course links from a specific page"""
-        url = f"{self.courses_url}?page={page_num}"
         print(f"Fetching courses from page {page_num}...")
         
+        # Navigate to the specified page
+        if not self.navigate_to_page(page_num):
+            return []
+        
         try:
-            self.driver.get(url)
             # Wait for courses to load (MuiLink elements)
             self.wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".MuiLink-root")))
             time.sleep(3)  # Additional wait for JS to render fully
@@ -106,7 +171,7 @@ class RealDiscountScraper:
             print(f"Processing: {course_url}")
             self.driver.get(course_url)
             
-            # Wait for the page to load (specifically the Get Course button)
+            # Wait for the page to load
             self.wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '.MuiButton-root')))
             time.sleep(2)  # Additional wait for JS rendering
             
@@ -117,37 +182,70 @@ class RealDiscountScraper:
             except NoSuchElementException:
                 title = "Unknown Title"
             
-            # Extract the Get Course button link
+            # Multiple methods to find the "Get Course" button
+            udemy_link = None
+            
+            # Method 1: Direct "Get Course" text approach
             try:
-                # First try with the "Get Course" text, which is more specific
-                get_course_btns = self.driver.find_elements(By.XPATH, '//a[contains(text(), "Get Course")]')
-                
-                # If not found, try all buttons that might link to Udemy
-                if not get_course_btns:
-                    get_course_btns = self.driver.find_elements(By.CSS_SELECTOR, 'a.MuiButton-root[href*="udemy.com"]')
-                
-                if not get_course_btns:
-                    # Try any link to Udemy as a last resort
-                    get_course_btns = self.driver.find_elements(By.CSS_SELECTOR, 'a[href*="udemy.com"]')
-                
-                if not get_course_btns:
-                    print(f"No link to Udemy found for: {course_url}")
-                    return None
-                
-                # Get the first matching button with a valid Udemy link
-                udemy_link = None
-                for btn in get_course_btns:
-                    link = btn.get_attribute('href')
-                    if link and "udemy.com" in link:
-                        udemy_link = link
+                get_course_elements = self.driver.find_elements(By.XPATH, '//*[text()="Get Course"]')
+                for element in get_course_elements:
+                    # Try to find parent or ancestor that is an <a> tag
+                    current = element
+                    for _ in range(4):  # Check up to 4 levels up
+                        try:
+                            # Try parent
+                            current = current.find_element(By.XPATH, '..')
+                            # Check if it's an anchor
+                            if current.tag_name == 'a':
+                                link = current.get_attribute('href')
+                                if link and "udemy.com" in link:
+                                    udemy_link = link
+                                    break
+                        except:
+                            break
+                    if udemy_link:
                         break
-                
-                if not udemy_link:
-                    print(f"No valid link found in buttons for: {course_url}")
-                    return None
-                
-            except NoSuchElementException:
-                print(f"No Get Course button found for: {course_url}")
+            except Exception as e:
+                print(f"Method 1 failed: {str(e)}")
+            
+            # Method 2: Look for any Udemy links in buttons
+            if not udemy_link:
+                try:
+                    buttons = self.driver.find_elements(By.CSS_SELECTOR, '.MuiButtonBase-root')
+                    for button in buttons:
+                        # If the button itself is a link
+                        if button.tag_name == 'a':
+                            link = button.get_attribute('href')
+                            if link and "udemy.com" in link:
+                                udemy_link = link
+                                break
+                        
+                        # Or if the button contains a link
+                        try:
+                            link_element = button.find_element(By.TAG_NAME, 'a')
+                            link = link_element.get_attribute('href')
+                            if link and "udemy.com" in link:
+                                udemy_link = link
+                                break
+                        except:
+                            pass
+                except Exception as e:
+                    print(f"Method 2 failed: {str(e)}")
+            
+            # Method 3: Just look for any element with a Udemy link
+            if not udemy_link:
+                try:
+                    links = self.driver.find_elements(By.CSS_SELECTOR, 'a[href*="udemy.com"]')
+                    for link_element in links:
+                        link = link_element.get_attribute('href')
+                        if link:
+                            udemy_link = link
+                            break
+                except Exception as e:
+                    print(f"Method 3 failed: {str(e)}")
+            
+            if not udemy_link:
+                print(f"No Udemy link found for: {course_url}")
                 return None
             
             # Parse the URL to extract slug and coupon code
@@ -240,14 +338,19 @@ class RealDiscountScraper:
 
 def main():
     print("Starting Real.Discount Udemy Coupon Scraper...")
-    scraper = RealDiscountScraper()
     
     # Get user input for how many pages to scrape
     try:
-        max_pages = input("Enter number of pages to scrape (or press Enter for all pages): ")
-        max_pages = int(max_pages) if max_pages.strip() else None
+        max_pages_input = input("Enter number of pages to scrape (or press Enter for all pages): ")
+        max_pages = int(max_pages_input) if max_pages_input.strip() else None
     except ValueError:
+        print(f"Invalid input '{max_pages_input}'. Using default.")
         max_pages = None
+        
+    # Force a minimum of 10 pages if a specific number was requested
+    if max_pages is not None and max_pages < 10:
+        print(f"Setting minimum of 10 pages to scrape")
+        max_pages = 10
     
     # Get user input for output filename
     filename = input("Enter output CSV filename (default: udemy_coupons.csv): ")
@@ -255,6 +358,9 @@ def main():
         filename = "udemy_coupons.csv"
     if not filename.endswith('.csv'):
         filename += '.csv'
+    
+    # Initialize scraper
+    scraper = RealDiscountScraper()
     
     # Start scraping
     courses = scraper.scrape_courses(max_pages=max_pages)

@@ -88,7 +88,7 @@ class RealDiscountScraper:
             print(f"Error getting total pages: {str(e)}")
             # If we can't determine pages, assume at least 10
             print("Assuming 10 pages due to error")
-            return 10
+            return 5
     
     def navigate_to_page(self, page_num):
         """Navigate to a specific page of courses using pagination buttons"""

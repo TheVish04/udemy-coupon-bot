@@ -3,7 +3,7 @@ from bs4 import BeautifulSoup
 from urllib.parse import urlparse, parse_qs
 
 # 1) Download the HacksNation page
-page_url = "https://hacksnation.com/d/37317-udemy-free-courses-for-07-may-2025"
+page_url = "https://hacksnation.com/d/37375-udemy-free-courses-for-08-may-2025"
 resp = requests.get(page_url, timeout=10)
 resp.raise_for_status()
 

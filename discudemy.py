@@ -21,7 +21,9 @@ from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from selenium.common.exceptions import (
+    TimeoutException, NoSuchElementException, WebDriverException
+)
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
@@ -56,7 +58,11 @@ class DiscUdemyScraper:
 
     def get_detail_urls(self, page_num: int):
         url = f"{self.BASE}{self.LISTING.format(page_num)}"
-        self.driver.get(url)
+        try:
+            self.driver.get(url)
+        except WebDriverException as e:
+            print(f"[!] Connection error loading listing page {page_num}: {e}")
+            return []
 
         try:
             self.wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "a.card-header")))
@@ -75,7 +81,11 @@ class DiscUdemyScraper:
 
     def extract_coupon(self, detail_url: str):
         print(f"[→] {detail_url}")
-        self.driver.get(detail_url)
+        try:
+            self.driver.get(detail_url)
+        except WebDriverException as e:
+            print(f"[!] Connection reset on detail page {detail_url}: {e}")
+            return None
 
         try:
             take = self.wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "a.discBtn")))
@@ -85,11 +95,19 @@ class DiscUdemyScraper:
 
         go_link = take.get_attribute("href") or ""
         if not go_link:
-            take.click()
-            time.sleep(2)
-            go_link = self.driver.current_url
+            try:
+                take.click()
+                time.sleep(2)
+                go_link = self.driver.current_url
+            except WebDriverException as e:
+                print(f"[!] Error clicking Take Course at {detail_url}: {e}")
+                return None
         else:
-            self.driver.get(go_link)
+            try:
+                self.driver.get(go_link)
+            except WebDriverException as e:
+                print(f"[!] Connection reset when navigating to coupon at {detail_url}: {e}")
+                return None
 
         try:
             self.wait.until(EC.presence_of_element_located(
@@ -127,7 +145,11 @@ class DiscUdemyScraper:
             details = self.get_detail_urls(p)
             for d in details:
                 time.sleep(random.uniform(*delay_range))
-                info = self.extract_coupon(d)
+                try:
+                    info = self.extract_coupon(d)
+                except Exception as e:
+                    print(f"[!] Unexpected error on {d}: {e}")
+                    continue
                 if info:
                     results.append(info)
             time.sleep(random.uniform(2,5))

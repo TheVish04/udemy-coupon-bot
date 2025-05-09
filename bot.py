@@ -75,22 +75,24 @@ def fetch_course_details(full_url: str):
         tag = soup.find('meta', property=prop)
         return tag['content'].strip() if tag and tag.get('content') else ''
 
+    # Core OG metadata
     title = safe_meta('og:title') or 'No Title'
     img = safe_meta('og:image')
     desc = safe_meta('og:description')
 
-    # Rating
+    # Course-specific Udemy metadata
+    category = safe_meta('udemy_com:category') or 'N/A'
+    locale = safe_meta('og:locale')  # e.g. en_US
+    lang = 'N/A'
+    if locale:
+        parts = locale.split('_')
+        lang = parts[0].capitalize() + (f" ({parts[1]})" if len(parts) > 1 else '')
+
+    # Rating & Enrollment
     rtag = soup.select_one('span[data-purpose="rating-number"]')
     rating = rtag.text.strip() if rtag else 'N/A'
-    # Students enrolled
     stag = soup.select_one('div[data-purpose="enrollment"]')
     students = stag.text.strip().split()[0] if stag else 'N/A'
-    # Breadcrumb category
-    crumbs = [a.text.strip() for a in soup.select('a[data-purpose="breadcrumb-link"]')]
-    category = ' > '.join(crumbs[1:]) if len(crumbs) > 1 else 'N/A'
-    # Language
-    locale = safe_meta('og:locale')
-    lang = locale.replace('_', '-').capitalize() if locale else 'N/A'
 
     return title, img, desc, rating, students, category, lang
 
@@ -100,23 +102,19 @@ def send_coupon():
     udemy_link = f"https://www.udemy.com/course/{slug}/?couponCode={coupon}"
     redirect = f"{BASE_REDIRECT_URL}?udemy_url=" + urllib.parse.quote(udemy_link, safe='')
 
-    # Always scrape without raising
+    # Scrape metadata
     title, img, desc, rating, students, category, lang = fetch_course_details(udemy_link)
 
-    # Enrolls left placeholder: not provided by Udemy; show students count instead
-    enroll_line = f"⏰ ASAP ({students} enrolled)"
-
-    # Truncate description
-    snippet = (desc[:197].rsplit(' ', 1)[0] + '...') if len(desc) > 200 else desc
-
+    # Build caption lines
     lines = [
         f"📚 <b>{title}</b>",
-        enroll_line,
-        f"⭐ {rating}/5    👩‍🎓 {students} students",
-        f"👨‍💻 {category}",
-        f"💬 {lang}",
+        f"⭐ <b>Rating:</b> {rating}/5    👩‍🎓 <b>Enrolled:</b> {students}",
+        f"👨‍💻 <b>Category:</b> {category}",
+        f"💬 <b>Language:</b> {lang}",
     ]
-    if snippet:
+    # Truncated description snippet
+    if desc:
+        snippet = (desc[:197].rsplit(' ', 1)[0] + '...') if len(desc) > 200 else desc
         lines.append(f"💡 {snippet}")
 
     caption = '\n'.join(lines)

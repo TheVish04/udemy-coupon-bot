@@ -17,7 +17,7 @@ import json
 # ─── CONFIG ────────────────────────────────────────────────
 TOKEN             = '7918306173:AAFFIedi9d4R8XDA0AlsOin8BCfJRJeNGWE'
 CHAT_ID           = '@udemyfreecourses2080'
-INTERVAL          = 1  # minutes between posts
+INTERVAL          = 10  # seconds between posts
 SHEET_KEY         = '1aoHvwptKb6S3IbBFF6WdsWt6FsTeWlAKEcvk05IZj70'
 BASE_REDIRECT_URL = 'https://udemyfreecoupons2080.blogspot.com'
 PORT              = 10000  # health-check endpoint port
@@ -97,8 +97,7 @@ def fetch_course_details(slug):
       - title
       - thumbnail (og:image)
       - description (og:description)
-      - rating (span with class containing 'star-rating')
-      - students (div with class containing 'enrollment')
+    And generate random rating and students instead of fetching them.
     """
     url = f"https://www.udemy.com/course/{slug}/"
     headers = {'User-Agent': 'Mozilla/5.0'}
@@ -111,25 +110,17 @@ def fetch_course_details(slug):
         title       = soup.find('meta', property='og:title')['content']
         thumbnail   = soup.find('meta', property='og:image')['content']
         description = soup.find('meta', property='og:description')['content']
-
-        # course rating
-        rating_tag = soup.find('span', class_=lambda x: x and 'star-rating' in x)
-        rating     = float(rating_tag.text.strip()) if rating_tag and rating_tag.text.strip() else 'N/A'
-
-        # student enrollment
-        enroll_tag = soup.find('div', class_=lambda x: x and 'enrollment' in x)
-        students   = int(''.join(filter(str.isdigit, enroll_tag.text.strip()))) if enroll_tag else 'N/A'
-
-        return title, thumbnail, description, rating, students
     except Exception as e:
         logger.warning(f"Scraping Udemy failed for {slug}—using fallback", exc_info=True)
-        return (
-            slug.replace('-', ' ').title(),
-            None,
-            'Check out this course for exciting content!',
-            'N/A',
-            'N/A'
-        )
+        title       = slug.replace('-', ' ').title()
+        thumbnail   = None
+        description = 'Check out this course for exciting content!'
+
+    # Generate random rating and students instead of fetching
+    rating   = round(random.uniform(0, 5), 1)  # Random float between 0 and 5, 1 decimal place
+    students = random.randint(0, 100000)       # Random integer between 0 and 100,000
+
+    return title, thumbnail, description, rating, students
 
 # ─── TELEGRAM SENDER ───────────────────────────────────────
 def send_coupon():
@@ -139,32 +130,15 @@ def send_coupon():
         f"https://www.udemy.com/course/{slug}/?couponCode={coupon}", safe=''
     )
 
-    # try scraping real course data
-    try:
-        title, img, desc, rating, students = fetch_course_details(slug)
-    except Exception:
-        logger.warning("Scraping Udemy failed—using slug fallback", exc_info=True)
-        title, img, desc, rating, students = (
-            slug.replace('-', ' ').title(),
-            None,
-            'Check out this course for exciting content!',
-            'N/A',
-            'N/A'
-        )
+    # get course details with random rating and students
+    title, img, desc, rating, students = fetch_course_details(slug)
 
     # Format the description to a maximum of 200 characters with ellipsis
     short_desc = (desc[:197] + '...') if len(desc) > 200 else desc
 
     # Build HTML caption with structured format
-    if rating == 'N/A':
-        rating_text = "N/A"
-    else:
-        rating_text = f"{rating:.1f}/5"
-    
-    if students == 'N/A':
-        students_text = "N/A"
-    else:
-        students_text = f"{students:,}"
+    rating_text = f"{rating:.1f}/5"
+    students_text = f"{students:,}"
 
     caption = (
         f"📚✏️ <b>{title}</b>\n"
@@ -221,12 +195,12 @@ if __name__ == '__main__':
     logger.info("Startup: sending first coupon")
     send_coupon()
 
-    # 3) schedule periodic sends
+    # 3) schedule periodic sends every 10 seconds
     scheduler.add_job(
         send_coupon,
         'interval',
-        minutes=INTERVAL,
-        next_run_time=datetime.now() + timedelta(minutes=INTERVAL)
+        seconds=10,
+        next_run_time=datetime.now() + timedelta(seconds=10)
     )
 
     try:

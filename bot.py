@@ -133,19 +133,22 @@ def send_coupon():
     # get course details with random rating and students
     title, img, desc, rating, students = fetch_course_details(slug)
 
+    # Generate a random number for enrolls left (between 1 and 1000)
+    enrolls_left = random.randint(1, 1000)
+
     # Format the description to a maximum of 200 characters with ellipsis
     short_desc = (desc[:197] + '...') if len(desc) > 200 else desc
 
-    # Build HTML caption with structured format
+    # Build HTML caption with structured format, including random enrolls left and removing category
     rating_text = f"{rating:.1f}/5"
     students_text = f"{students:,}"
+    enrolls_left_text = f"{enrolls_left:,}"
 
     caption = (
         f"📚✏️ <b>{title}</b>\n"
         f"🏅 <b>CERTIFIED</b>\n"
-        f"⏰ ASAP ({students_text} Enrolls Left)\n"
+        f"⏰ ASAP ({enrolls_left_text} Enrolls Left)\n"
         f"⭐ {rating_text}    👩‍🎓 {students_text} students\n"
-        f"🎓 IT & Software > IT Certifications\n"
         f"🌐 English (US)\n\n"
         f"💡 Learn everything you need to know as a {title.split(' - ')[0].lower().replace('full course', '').strip()} beginner.\n"
         f"Become a {title.split(' - ')[0].lower().replace('full course', '').strip()} expert!\n\n"

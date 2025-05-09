@@ -64,9 +64,10 @@ def get_coupons_from_sheet():
         rows   = sheet.get_all_records()
         logger.info(f"Fetched {len(rows)} rows from Google Sheets")
         return rows
-    except Exception as e:
+    except Exception:
         logger.error("Error fetching Google Sheet", exc_info=True)
         return None
+
 
 def fetch_coupons():
     rows = get_coupons_from_sheet()
@@ -74,17 +75,16 @@ def fetch_coupons():
         logger.info("No sheet data—using static fallback")
         return STATIC_COUPONS
 
-    # normalize header keys
     valid = []
     for row in rows:
-        low = {k.strip().lower(): v for k, v in row.items()}
-        slug = low.get('slug')
-        code = low.get('couponcode') or low.get('coupon_code')
+        data = {k.strip().lower(): v for k, v in row.items()}
+        slug = data.get('slug')
+        code = data.get('couponcode') or data.get('coupon_code')
         if slug and code:
             valid.append((slug, code))
 
     if not valid:
-        logger.warning("No valid slug/couponcode in sheet—using static fallback")
+        logger.warning("No valid coupons in sheet—using static fallback")
         return STATIC_COUPONS
 
     logger.info(f"Using {len(valid)} coupons from sheet")
@@ -92,116 +92,93 @@ def fetch_coupons():
 
 
 # ─── UDEMY SCRAPER ─────────────────────────────────────────
-def fetch_course_details(slug):
-    """
-    Scrape Udemy course page for:
-      - title
-      - thumbnail (og:image)
-      - description (og:description)
-      - rating (data-purpose="rating-number")
-      - students (data-purpose="enrollment")
-    """
-    url = f"https://www.udemy.com/course/{slug}/"
+def fetch_course_details(course_url: str):
     headers = {'User-Agent': 'Mozilla/5.0'}
-    resp    = requests.get(url, headers=headers, timeout=10)
-    soup    = BeautifulSoup(resp.text, 'html.parser')
+    resp = requests.get(course_url, headers=headers, timeout=10)
+    soup = BeautifulSoup(resp.text, 'html.parser')
 
     # Open Graph metadata
-    title       = soup.find('meta',   property='og:title')['content']
-    thumbnail   = soup.find('meta',   property='og:image')['content']
-    description = soup.find('meta',   property='og:description')['content']
+    title = soup.find('meta', property='og:title')['content']
+    thumbnail = soup.find('meta', property='og:image')['content']
+    description = soup.find('meta', property='og:description')['content']
 
-    # course rating & enrollment
+    # rating & enrollment
     rating_tag = soup.select_one('span[data-purpose="rating-number"]')
-    rating     = rating_tag.text.strip() if rating_tag else 'N/A'
-
+    rating = rating_tag.text.strip() if rating_tag else 'N/A'
     enroll_tag = soup.select_one('div[data-purpose="enrollment"]')
-    students   = enroll_tag.text.strip()[:20] if enroll_tag else 'N/A'
+    students = enroll_tag.text.strip().split(' ')[0] if enroll_tag else 'N/A'
 
     return title, thumbnail, description, rating, students
 
 
 # ─── TELEGRAM SENDER ───────────────────────────────────────
 def send_coupon():
-    # pick a random (slug, coupon) tuple
     slug, coupon = random.choice(fetch_coupons())
-    redirect_url = f"{BASE_REDIRECT_URL}?udemy_url=" + urllib.parse.quote(
-        f"https://www.udemy.com/course/{slug}/?couponCode={coupon}", safe=''
-    )
+    # construct full Udemy URL with coupon code
+    udemy_link = f"https://www.udemy.com/course/{slug}/?couponCode={coupon}"
+    # redirect through our base URL
+    redirect_url = f"{BASE_REDIRECT_URL}?udemy_url=" + urllib.parse.quote(udemy_link, safe='')
 
-    # try scraping real course data
     try:
-        title, img, desc, rating, students = fetch_course_details(slug)
+        title, img_url, desc, rating, students = fetch_course_details(udemy_link)
     except Exception:
         logger.warning("Scraping Udemy failed—using slug fallback", exc_info=True)
-        title, img, desc, rating, students = (
-            slug.replace('-', ' ').title(),
-            None,
-            '',
-            'N/A',
-            'N/A'
+        title, img_url, desc, rating, students = (
+            slug.replace('-', ' ').title(), None, '', 'N/A', 'N/A'
         )
 
-    # build HTML caption
-    caption = (
-        f"📚✏️ <b>{title}</b>\n"
-        f"⏰ ASAP (limited seats!)\n"
-        f"⭐ {rating}/5    👩‍🎓 {students}\n\n"
-        f"{desc[:200].strip()}…"
-    )
+    # truncate description cleanly
+    snippet = (desc[:197].rsplit(' ', 1)[0] + '...') if desc and len(desc) > 200 else desc
 
-    payload = {
-        'chat_id':    CHAT_ID,
-        'caption':    caption,
-        'parse_mode': 'HTML',
-        'reply_markup': json.dumps({
-            'inline_keyboard': [[{
-                'text': '🎓 Enroll Now',
-                'url':  redirect_url
-            }]]
-        })
+    # Build HTML message
+    caption_lines = [
+        f"📚 <b>{title}</b>",
+        f"🎁 <b>Coupon:</b> <code>{coupon}</code>",
+        f"⭐ <b>Rating:</b> {rating}/5    👨‍🎓 <b>Enrolled:</b> {students}",
+    ]
+    if snippet:
+        caption_lines.append(f"📖 {snippet}")
+    caption = '\n'.join(caption_lines)
+
+    keyboard = {
+        'inline_keyboard': [[{'text': '🎓 Enroll Now', 'url': redirect_url}]]
     }
 
-    # choose sendPhoto vs sendMessage
-    if img:
-        payload['photo'] = img
-        api_endpoint   = f"https://api.telegram.org/bot{TOKEN}/sendPhoto"
-    else:
-        payload['text']      = caption + f"\n\n🔗 {redirect_url}"
-        api_endpoint         = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-        payload.pop('caption')
+    payload = {'chat_id': CHAT_ID, 'parse_mode': 'HTML', 'reply_markup': json.dumps(keyboard)}
 
-    # send to Telegram
+    if img_url:
+        payload.update({'photo': img_url, 'caption': caption})
+        api_endpoint = f"https://api.telegram.org/bot{TOKEN}/sendPhoto"
+    else:
+        payload['text'] = caption + f"\n\n🔗 <a href=\"{redirect_url}\">Link</a>"
+        api_endpoint = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+
     try:
         resp = requests.post(api_endpoint, data=payload, timeout=10)
         resp.raise_for_status()
         result = resp.json()
         if result.get('ok'):
-            logger.info(f"Sent course card: {slug}")
+            logger.info(f"Sent: {slug} ({coupon})")
         else:
             logger.error(f"Telegram API error: {result}")
-    except Exception as e:
+    except Exception:
         logger.error("Failed to send to Telegram", exc_info=True)
 
 
 # ─── MAIN ───────────────────────────────────────────────────
 if __name__ == '__main__':
-    # 1) start health-check server
     threading.Thread(target=run_health_server, daemon=True).start()
-    logger.info(f"Health-check listening on port {PORT}")
+    logger.info(f"Health-check on port {PORT}")
 
-    # 2) send first coupon immediately
-    logger.info("Startup: sending first coupon")
+    logger.info("Sending first coupon...")
     send_coupon()
 
-    # 3) schedule periodic sends
     scheduler.add_job(
         send_coupon,
         'interval',
         minutes=INTERVAL,
         next_run_time=datetime.now() + timedelta(minutes=INTERVAL)
     )
-
     try:
         scheduler.start()
     except (KeyboardInterrupt, SystemExit):

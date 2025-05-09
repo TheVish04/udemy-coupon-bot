@@ -60,58 +60,40 @@ def fetch_coupons():
     valid = [(r['slug'], r.get('couponcode') or r.get('coupon_code')) for r in rows if r.get('slug') and (r.get('couponcode') or r.get('coupon_code'))]
     return valid or STATIC_COUPONS
 
-# ─── Udemy Scraper using JSON-LD ────────────────────────────
+# ─── Udemy Scraper with OG tags ────────────────────────────
 def fetch_course_details(full_url: str):
     headers = {'User-Agent':'Mozilla/5.0','Accept-Language':'en-US'}
     resp = requests.get(full_url, headers=headers, timeout=10)
     soup = BeautifulSoup(resp.text, 'html.parser')
 
-    # Default fallbacks
-    title = desc = category = lang = 'N/A'
-    rating = 'N/A'
-    students = 'N/A'
-    img = ''
+    def get_meta(prop):
+        tag = soup.find('meta', property=prop)
+        return tag['content'].strip() if tag and tag.get('content') else ''
 
-    # OG image
-    og_img = soup.find('meta', property='og:image')
-    if og_img and og_img.get('content'):
-        img = og_img['content'].strip()
+    title = get_meta('og:title') or 'N/A'
+    img = get_meta('og:image')
+    desc = get_meta('og:description')
+    locale = get_meta('og:locale')  # e.g. en_US
+    if locale:
+        parts = locale.split('_')
+        lang = parts[0].capitalize() + (f" ({parts[1]})" if len(parts)>1 else '')
+    else:
+        # fallback to html lang
+        lang_attr = soup.html.attrs.get('lang','')
+        lang = lang_attr.capitalize() if lang_attr else 'N/A'
 
-    # JSON-LD parsing
-    for script in soup.find_all('script', type='application/ld+json'):
-        try:
-            data = json.loads(script.string)
-            # target Course object
-            if isinstance(data, dict) and data.get('@type') == 'Course':
-                title = data.get('name', title)
-                desc = data.get('description', '')
-                category = data.get('courseCategory', data.get('category', category))
-                lang = data.get('inLanguage', lang)
-                agg = data.get('aggregateRating', {})
-                rating = str(agg.get('ratingValue', rating))
-                students = str(agg.get('ratingCount', students))
-                break
-            # sometimes it's a list
-            if isinstance(data, list):
-                for item in data:
-                    if item.get('@type') == 'Course':
-                        title = item.get('name', title)
-                        desc = item.get('description', '')
-                        category = item.get('courseCategory', item.get('category', category))
-                        lang = item.get('inLanguage', lang)
-                        agg = item.get('aggregateRating', {})
-                        rating = str(agg.get('ratingValue', rating))
-                        students = str(agg.get('ratingCount', students))
-                        break
-        except Exception:
-            continue
+    # Rating & Enrollment
+    rating_tag = soup.select_one('span[data-purpose="rating-number"]')
+    rating = rating_tag.text.strip() if rating_tag else 'N/A'
+    enroll_tag = soup.select_one('div[data-purpose="enrollment"]')
+    students = enroll_tag.text.strip().split()[0] if enroll_tag else 'N/A'
 
-    # Clean up description snippet
+    # Trim description snippet
     snippet = ''
     if desc:
-        snippet = (desc[:197].rsplit(' ',1)[0] + '...') if len(desc) > 200 else desc
+        snippet = (desc[:197].rsplit(' ',1)[0] + '...') if len(desc)>200 else desc
 
-    return title, img, snippet, rating, students, category, lang
+    return title, img, snippet, rating, students, lang
 
 # ─── Telegram Sender ───────────────────────────────────────
 def send_coupon():
@@ -119,13 +101,12 @@ def send_coupon():
     udemy_link = f"https://www.udemy.com/course/{slug}/?couponCode={coupon}"
     redirect = f"{BASE_REDIRECT_URL}?udemy_url=" + urllib.parse.quote(udemy_link, safe='')
 
-    title, img, snippet, rating, students, category, lang = fetch_course_details(udemy_link)
+    title, img, snippet, rating, students, lang = fetch_course_details(udemy_link)
 
     lines = [
         f"📚 <b>{title}</b>",
         f"⏰ ASAP ({students} enrolled)",
         f"⭐ {rating}/5    👩‍🎓 {students} students",
-        f"👨‍💻 {category}",
         f"💬 {lang}",
     ]
     if snippet:
@@ -143,8 +124,8 @@ def send_coupon():
         api = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 
     try:
-        resp = requests.post(api, data=payload, timeout=10)
-        resp.raise_for_status()
+        r = requests.post(api, data=payload, timeout=10)
+        r.raise_for_status()
         logger.info(f"Sent: {slug} ({coupon})")
     except Exception:
         logger.error('Telegram send failed', exc_info=True)

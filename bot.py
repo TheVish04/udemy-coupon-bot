@@ -4,21 +4,22 @@ import random
 import requests
 import threading
 from datetime import datetime, timedelta
+
 from apscheduler.schedulers.blocking import BlockingScheduler
 from flask import Flask
 from bs4 import BeautifulSoup
+
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import urllib.parse
 import json
-import html  # Added for HTML escaping
 
 # ─── CONFIG ────────────────────────────────────────────────
 TOKEN             = '7918306173:AAFFIedi9d4R8XDA0AlsOin8BCfJRJeNGWE'
 CHAT_ID           = '@udemyfreecourses2080'
 INTERVAL          = 1  # minutes between posts
 SHEET_KEY         = '1aoHvwptKb6S3IbBFF6WdsWt6FsTeWlAKEcvk05IZj70'
-BASE_REDIRECT_URL = '[invalid url, do not cite]'
+BASE_REDIRECT_URL = 'https://udemyfreecoupons2080.blogspot.com'
 PORT              = 10000  # health-check endpoint port
 # ────────────────────────────────────────────────────────────
 
@@ -26,6 +27,7 @@ PORT              = 10000  # health-check endpoint port
 STATIC_COUPONS = [
     ('the-complete-python-bootcamp-from-zero-to-expert', 'ST6MT60525G3'),
     ('the-complete-matlab-course-for-wireless-comm-engineering', '59DE4A717B657B340C67'),
+    ('it-security-101-protecting-and-securing-computer-networks', 'B938BDB811ABEDBBDD79'),
 ]
 
 # ─── LOGGING & SCHEDULER SETUP ─────────────────────────────
@@ -72,7 +74,7 @@ def fetch_coupons():
         logger.info("No sheet data—using static fallback")
         return STATIC_COUPONS
 
-    # Normalize header keys
+    # normalize header keys
     valid = []
     for row in rows:
         low = {k.strip().lower(): v for k, v in row.items()}
@@ -98,69 +100,77 @@ def fetch_course_details(slug):
       - rating (data-purpose="rating-number")
       - students (data-purpose="enrollment")
     """
-    url = f"[invalid url, do not cite]
+    url = f"https://www.udemy.com/course/{slug}/"
     headers = {'User-Agent': 'Mozilla/5.0'}
     try:
         resp    = requests.get(url, headers=headers, timeout=10)
         resp.raise_for_status()
         soup    = BeautifulSoup(resp.text, 'html.parser')
+
+        # Open Graph metadata
+        title       = soup.find('meta', property='og:title')['content']
+        thumbnail   = soup.find('meta', property='og:image')['content']
+        description = soup.find('meta', property='og:description')['content']
+
+        # course rating
+        rating_tag = soup.select_one('span[data-purpose="rating-number"]')
+        rating     = float(rating_tag.text.strip()) if rating_tag and rating_tag.text.strip() else 0.0
+
+        # student enrollment
+        enroll_tag = soup.select_one('div[data-purpose="enrollment"]')
+        students   = int(''.join(filter(str.isdigit, enroll_tag.text.strip()))) if enroll_tag else 0
+
+        return title, thumbnail, description, rating, students
     except Exception as e:
-        logger.warning(f"Failed to fetch course page for {slug}: {e}")
-        return slug.replace('-', ' ').title(), None, '', 'N/A', 'N/A'
-
-    # Title
-    title_tag = soup.find('meta', property='og:title')
-    title = title_tag['content'] if title_tag else slug.replace('-', ' ').title()
-
-    # Thumbnail
-    img_tag = soup.find('meta', property='og:image')
-    img = img_tag['content'] if img_tag else None
-
-    # Description
-    desc_tag = soup.find('meta', property='og:description')
-    desc = desc_tag['content'] if desc_tag else ''
-
-    # Rating
-    rating_tag = soup.select_one('span[data-purpose="rating-number"]')
-    rating = rating_tag.text.strip() if rating_tag else 'N/A'
-
-    # Students
-    enroll_tag = soup.select_one('div[data-purpose="enrollment"]')
-    students = enroll_tag.text.strip() if enroll_tag else 'N/A'
-
-    return title, img, desc, rating, students
+        logger.warning(f"Scraping Udemy failed for {slug}—using fallback", exc_info=True)
+        return (
+            slug.replace('-', ' ').title(),
+            None,
+            'Check out this course for exciting content!',
+            0.0,
+            0
+        )
 
 # ─── TELEGRAM SENDER ───────────────────────────────────────
 def send_coupon():
-    # Pick a random (slug, coupon) tuple
+    # pick a random (slug, coupon) tuple
     slug, coupon = random.choice(fetch_coupons())
     redirect_url = f"{BASE_REDIRECT_URL}?udemy_url=" + urllib.parse.quote(
-        f"[invalid url, do not cite] safe=''
+        f"https://www.udemy.com/course/{slug}/?couponCode={coupon}", safe=''
     )
 
-    # Fetch course details
-    title, img, desc, rating, students = fetch_course_details(slug)
+    # try scraping real course data
+    try:
+        title, img, desc, rating, students = fetch_course_details(slug)
+    except Exception:
+        logger.warning("Scraping Udemy failed—using slug fallback", exc_info=True)
+        title, img, desc, rating, students = (
+            slug.replace('-', ' ').title(),
+            None,
+            '',
+            0.0,
+            0
+        )
 
-    # Escape HTML special characters
-    title_escaped = html.escape(title)
-    desc_escaped = html.escape(desc) if desc else ''
+    # Format the description to a maximum of 200 characters with ellipsis
+    short_desc = (desc[:197] + '...') if len(desc) > 200 else desc
 
-    # Build HTML caption dynamically
-    caption_parts = []
-    caption_parts.append(f"📚✏️ <b>{title_escaped}</b>")
-    if rating != 'N/A':
-        caption_parts.append(f"⭐ {rating}/5")
-    if students != 'N/A':
-        caption_parts.append(f"👩‍🎓 {students}")
-    caption_parts.append("⏰ ASAP (limited seats!)")
-    if desc_escaped:
-        truncated_desc = desc[:200].strip() + "…"
-        caption_parts.append(html.escape(truncated_desc))
-    caption = "\n".join(caption_parts)
+    # Build HTML caption with structured format
+    caption = (
+        f"📚✏️ <b>{title}</b>\n"
+        f"🏅 <b>CERTIFIED</b>\n"
+        f"⏰ ASAP ({students} Enrolls Left)\n"
+        f"⭐ {rating:.1f}/5    👩‍🎓 {students:,} students\n"
+        f"🎓 IT & Software > IT Certifications\n"
+        f"🌐 English (US)\n\n"
+        f"💡 Learn everything you need to know as a {title.split(' - ')[0].lower().replace('full course', '').strip()} beginner.\n"
+        f"Become a {title.split(' - ')[0].lower().replace('full course', '').strip()} expert!\n\n"
+        f"🔗 <a href='{redirect_url}'>Enroll Now</a>"
+    )
 
-    # Prepare Telegram payload
     payload = {
         'chat_id':    CHAT_ID,
+        'caption':    caption,
         'parse_mode': 'HTML',
         'reply_markup': json.dumps({
             'inline_keyboard': [[{
@@ -170,16 +180,16 @@ def send_coupon():
         })
     }
 
-    # Choose sendPhoto vs sendMessage
+    # choose sendPhoto vs sendMessage
     if img:
         payload['photo'] = img
-        payload['caption'] = caption
-        api_endpoint   = f"[invalid url, do not cite]
+        api_endpoint   = f"https://api.telegram.org/bot{TOKEN}/sendPhoto"
     else:
-        payload['text'] = caption
-        api_endpoint    = f"[invalid url, do not cite]
+        payload['text']      = caption
+        api_endpoint         = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+        payload.pop('caption')
 
-    # Send to Telegram
+    # send to Telegram
     try:
         resp = requests.post(api_endpoint, data=payload, timeout=10)
         resp.raise_for_status()
@@ -193,15 +203,15 @@ def send_coupon():
 
 # ─── MAIN ───────────────────────────────────────────────────
 if __name__ == '__main__':
-    # 1) Start health-check server
+    # 1) start health-check server
     threading.Thread(target=run_health_server, daemon=True).start()
     logger.info(f"Health-check listening on port {PORT}")
 
-    # 2) Send first coupon immediately
+    # 2) send first coupon immediately
     logger.info("Startup: sending first coupon")
     send_coupon()
 
-    # 3) Schedule periodic sends
+    # 3) schedule periodic sends
     scheduler.add_job(
         send_coupon,
         'interval',

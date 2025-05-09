@@ -97,8 +97,8 @@ def fetch_course_details(slug):
       - title
       - thumbnail (og:image)
       - description (og:description)
-      - rating (data-purpose="rating-number")
-      - students (data-purpose="enrollment")
+      - rating (span with class containing 'star-rating')
+      - students (div with class containing 'enrollment')
     """
     url = f"https://www.udemy.com/course/{slug}/"
     headers = {'User-Agent': 'Mozilla/5.0'}
@@ -113,12 +113,12 @@ def fetch_course_details(slug):
         description = soup.find('meta', property='og:description')['content']
 
         # course rating
-        rating_tag = soup.select_one('span[data-purpose="rating-number"]')
-        rating     = float(rating_tag.text.strip()) if rating_tag and rating_tag.text.strip() else 0.0
+        rating_tag = soup.find('span', class_=lambda x: x and 'star-rating' in x)
+        rating     = float(rating_tag.text.strip()) if rating_tag and rating_tag.text.strip() else 'N/A'
 
         # student enrollment
-        enroll_tag = soup.select_one('div[data-purpose="enrollment"]')
-        students   = int(''.join(filter(str.isdigit, enroll_tag.text.strip()))) if enroll_tag else 0
+        enroll_tag = soup.find('div', class_=lambda x: x and 'enrollment' in x)
+        students   = int(''.join(filter(str.isdigit, enroll_tag.text.strip()))) if enroll_tag else 'N/A'
 
         return title, thumbnail, description, rating, students
     except Exception as e:
@@ -127,8 +127,8 @@ def fetch_course_details(slug):
             slug.replace('-', ' ').title(),
             None,
             'Check out this course for exciting content!',
-            0.0,
-            0
+            'N/A',
+            'N/A'
         )
 
 # ─── TELEGRAM SENDER ───────────────────────────────────────
@@ -147,20 +147,30 @@ def send_coupon():
         title, img, desc, rating, students = (
             slug.replace('-', ' ').title(),
             None,
-            '',
-            0.0,
-            0
+            'Check out this course for exciting content!',
+            'N/A',
+            'N/A'
         )
 
     # Format the description to a maximum of 200 characters with ellipsis
     short_desc = (desc[:197] + '...') if len(desc) > 200 else desc
 
     # Build HTML caption with structured format
+    if rating == 'N/A':
+        rating_text = "N/A"
+    else:
+        rating_text = f"{rating:.1f}/5"
+    
+    if students == 'N/A':
+        students_text = "N/A"
+    else:
+        students_text = f"{students:,}"
+
     caption = (
         f"📚✏️ <b>{title}</b>\n"
         f"🏅 <b>CERTIFIED</b>\n"
-        f"⏰ ASAP ({students} Enrolls Left)\n"
-        f"⭐ {rating:.1f}/5    👩‍🎓 {students:,} students\n"
+        f"⏰ ASAP ({students_text} Enrolls Left)\n"
+        f"⭐ {rating_text}    👩‍🎓 {students_text} students\n"
         f"🎓 IT & Software > IT Certifications\n"
         f"🌐 English (US)\n\n"
         f"💡 Learn everything you need to know as a {title.split(' - ')[0].lower().replace('full course', '').strip()} beginner.\n"

@@ -117,8 +117,8 @@ def fetch_course_details(slug):
         description = 'Check out this course for exciting content!'
 
     # Generate random rating and students instead of fetching
-    rating   = round(random.uniform(0, 5), 1)  # Random float between 0 and 5, 1 decimal place
-    students = random.randint(0, 100000)       # Random integer between 0 and 100,000
+    rating   = round(random.uniform(3, 5), 1)  # Random float between 0 and 5, 1 decimal place
+    students = random.randint(0, 50000)       # Random integer between 0 and 100,000
 
     return title, thumbnail, description, rating, students
 

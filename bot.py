@@ -203,7 +203,7 @@ if __name__ == '__main__':
         send_coupon,
         'interval',
         seconds=INTERVAL,
-        next_run_time=datetime.now() + timedelta(seconds=10)
+        next_run_time=datetime.now() + timedelta(seconds=INTERVAL),
     )
 
     try:

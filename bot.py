@@ -17,7 +17,7 @@ import json
 # ─── CONFIG ────────────────────────────────────────────────
 TOKEN             = '7918306173:AAFFIedi9d4R8XDA0AlsOin8BCfJRJeNGWE'
 CHAT_ID           = '@udemyfreecourses2080'
-INTERVAL          = 10  # seconds between posts
+INTERVAL          = random.randint(60, 120)  # seconds between posts
 SHEET_KEY         = '1aoHvwptKb6S3IbBFF6WdsWt6FsTeWlAKEcvk05IZj70'
 BASE_REDIRECT_URL = 'https://udemyfreecoupons2080.blogspot.com'
 PORT              = 10000  # health-check endpoint port
@@ -25,9 +25,9 @@ PORT              = 10000  # health-check endpoint port
 
 # Fallback coupons if sheet is empty or invalid
 STATIC_COUPONS = [
-    ('the-complete-python-bootcamp-from-zero-to-expert', 'ST6MT60525G3'),
-    ('the-complete-matlab-course-for-wireless-comm-engineering', '59DE4A717B657B340C67'),
-    ('it-security-101-protecting-and-securing-computer-networks', 'B938BDB811ABEDBBDD79'),
+    ('the-complete-python-bootcamp-from-zero-to-expert', 'ST6MT60525G3')
+    # ('the-complete-matlab-course-for-wireless-comm-engineering', '59DE4A717B657B340C67'),
+    # ('it-security-101-protecting-and-securing-computer-networks', 'B938BDB811ABEDBBDD79'),
 ]
 
 # ─── LOGGING & SCHEDULER SETUP ─────────────────────────────

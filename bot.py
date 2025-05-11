@@ -202,7 +202,7 @@ if __name__ == '__main__':
     scheduler.add_job(
         send_coupon,
         'interval',
-        seconds=10,
+        seconds=INTERVAL,
         next_run_time=datetime.now() + timedelta(seconds=10)
     )
 

@@ -118,4 +118,4 @@ def main():
 if __name__ == "__main__":
     main()
 
-# python udemy_coupon_script.py --url "https://hacksnation.com/d/37411-udemy-free-courses-for-10-may-2025" --paste --output special_courses.csv
+# python udemy_coupon_script.py --url "https://hacksnation.com/d/37592-udemy-free-courses-for-13-may-2025" --paste --output special_courses.csv

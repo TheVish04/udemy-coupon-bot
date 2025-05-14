@@ -22,7 +22,6 @@ INTERVAL          = random.randint(60, 120)  # seconds between posts
 SHEET_KEY         = '1aoHvwptKb6S3IbBFF6WdsWt6FsTeWlAKEcvk05IZj70'
 BASE_REDIRECT_URL = 'https://udemyfreecoupons2080.blogspot.com'
 PORT              = 10000  # health-check endpoint port
-SENT_COUPONS_FILE = 'sent_coupons.json'  # File to track sent coupons
 # ────────────────────────────────────────────────────────────
 
 # List of user agents to rotate through
@@ -50,28 +49,8 @@ logger    = logging.getLogger(__name__)
 scheduler = BlockingScheduler(timezone="UTC")
 # ────────────────────────────────────────────────────────────
 
-# Initialize sent coupons tracking
-sent_coupons = set()
-
-def load_sent_coupons():
-    """Load the list of already sent coupons from file"""
-    global sent_coupons
-    try:
-        if os.path.exists(SENT_COUPONS_FILE):
-            with open(SENT_COUPONS_FILE, 'r') as f:
-                sent_coupons = set(json.load(f))
-                logger.info(f"Loaded {len(sent_coupons)} previously sent coupons")
-    except Exception as e:
-        logger.error(f"Error loading sent coupons: {str(e)}")
-        sent_coupons = set()
-
-def save_sent_coupons():
-    """Save the list of sent coupons to file"""
-    try:
-        with open(SENT_COUPONS_FILE, 'w') as f:
-            json.dump(list(sent_coupons), f)
-    except Exception as e:
-        logger.error(f"Error saving sent coupons: {str(e)}")
+# Track the current position in the coupon list
+current_coupon_index = 0
 
 # ─── FLASK HEALTH CHECK ────────────────────────────────────
 app = Flask(__name__)
@@ -124,24 +103,24 @@ def fetch_coupons():
     logger.info(f"Using {len(valid)} coupons from sheet")
     return valid
 
-def get_unsent_coupons():
-    """Get coupons that haven't been sent yet"""
+def get_next_coupon():
+    """Get the next coupon in sequence"""
+    global current_coupon_index
+    
     all_coupons = fetch_coupons()
     
-    # Convert coupons to strings for comparison with sent_coupons set
-    all_coupon_keys = [f"{slug}:{code}" for slug, code in all_coupons]
+    if not all_coupons:
+        logger.warning("No coupons found, using static fallback")
+        return STATIC_COUPONS[0]
     
-    # Find coupons that haven't been sent yet
-    unsent_coupon_keys = [key for key in all_coupon_keys if key not in sent_coupons]
+    # Get the coupon at the current index
+    coupon = all_coupons[current_coupon_index]
     
-    # Convert back to (slug, code) tuples
-    unsent_coupons = []
-    for key in unsent_coupon_keys:
-        slug, code = key.split(':', 1)
-        unsent_coupons.append((slug, code))
+    # Update the index for the next call, wrapping around to 0 if we reach the end
+    current_coupon_index = (current_coupon_index + 1) % len(all_coupons)
     
-    logger.info(f"Found {len(unsent_coupons)} unsent coupons out of {len(all_coupons)} total")
-    return unsent_coupons
+    logger.info(f"Selected coupon at index {current_coupon_index-1} of {len(all_coupons)} total")
+    return coupon
 
 # ─── UDEMY SCRAPER ─────────────────────────────────────────
 def fetch_course_details(slug):
@@ -209,17 +188,8 @@ def fetch_course_details(slug):
 # ─── TELEGRAM SENDER ───────────────────────────────────────
 def send_coupon():
     try:
-        # Get unsent coupons
-        unsent_coupons = get_unsent_coupons()
-        
-        # If there are no unsent coupons, log and exit
-        if not unsent_coupons:
-            logger.warning("All coupons have been sent! Waiting for new coupons in the spreadsheet.")
-            return
-        
-        # Pick a random unsent coupon
-        slug, coupon = random.choice(unsent_coupons)
-        coupon_key = f"{slug}:{coupon}"
+        # Get the next coupon in sequence
+        slug, coupon = get_next_coupon()
         
         # Create redirect URL
         redirect_url = f"{BASE_REDIRECT_URL}?udemy_url=" + urllib.parse.quote(
@@ -303,9 +273,6 @@ def send_coupon():
         resp.raise_for_status()
         result = resp.json()
         if result.get('ok'):
-            # Mark this coupon as sent
-            sent_coupons.add(coupon_key)
-            save_sent_coupons()
             logger.info(f"Sent course card: {slug}")
         else:
             logger.error(f"Telegram API error: {result}")
@@ -315,9 +282,6 @@ def send_coupon():
 
 # ─── MAIN ───────────────────────────────────────────────────
 if __name__ == '__main__':
-    # 0) Load previously sent coupons
-    load_sent_coupons()
-    
     # 1) start health-check server
     threading.Thread(target=run_health_server, daemon=True).start()
     logger.info(f"Health-check listening on port {PORT}")

@@ -18,7 +18,7 @@ import urllib.parse
 # ─── CONFIG ────────────────────────────────────────────────
 TOKEN             = '7918306173:AAFFIedi9d4R8XDA0AlsOin8BCfJRJeNGWE'
 CHAT_ID           = '@udemyfreecourses2080'
-INTERVAL          = random.randint(60, 120)  # seconds between posts
+INTERVAL          = random.randint(60, 61)  # seconds between posts
 SHEET_KEY         = '1aoHvwptKb6S3IbBFF6WdsWt6FsTeWlAKEcvk05IZj70'
 BASE_REDIRECT_URL = 'https://udemyfreecoupons2080.blogspot.com'
 PORT              = 10000  # health-check endpoint port
@@ -214,7 +214,7 @@ def send_coupon():
             title = slug.replace('-', ' ').title()
             img = None
             desc = 'Check out this course for exciting content!'
-            rating = round(random.uniform(4.0, 5.0), 1)
+            rating = round(random.uniform(3.5, 5.0), 1)
             students = random.randint(5000, 100000)
 
         # Generate a random number for enrolls left (between 1 and 1000)
